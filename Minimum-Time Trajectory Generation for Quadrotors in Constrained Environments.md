@@ -47,16 +47,43 @@ $$
 至此完整了整个坐标变换推导。那么要把状态$[x,v,\phi],[\omega,F]$全部转换为参数，初状态确定，其余都通过梯度更新，因此其实是需要将状态变量和控制量的梯度给参数化。由于u的两项都是x中变量的微分，因此只需要确定三个状态变量的微分；由于位置坐标变换后切线坐标恒为0，因此只需要两个变量，总的来说只需要计算四个变量微分的参数化。
 $$
 s_f(t):t\rightarrow s,\bar t(s_f^t)=s\rightarrow t\\
-y'(t)=\frac{dy}{dt},\dot y(t)=\frac{dy}{ds}=\frac{dy}{dt}\frac{ds}{dt}=y'(s)\dot s_f^t,y'(s)=\dot y(s) \frac{1}{\dot s^t_f}\\
-w_1'(s)=\bar n(s)^Tv(t)+\bar \tau(s)w_2
+y'(t)=\frac{dy}{dt},\dot y(t)=\frac{dy}{ds}=\frac{dy}{dt}\frac{dt}{ds}=y'(s)\dot s_f^t,y'(s)=\dot y(s) \frac{1}{\dot s^t_f}\\
+我们需要的是\frac{dy(s)}{dt},即y'(s),例如w_1'(s)=\bar n(s)^Tv(t)+\bar \tau(s)w_2
 $$
 
+## 重写动力学约束
 
+我们的全部目的是：已知上一帧的状态和控制量，需要求得下一帧的状态，而更新利用的是牛顿法，因此需要求得状态对时间的一阶微分；因此需要由上一帧状态和控制量$[w_1,w_2,v,\phi,\omega,F]$表示状态的微分$[\bar{w}_{1}^{\prime},\bar{w}_{1}^{\prime},v',\phi']$.
+$$
+p(t)=\bar p_f(s)+\bar R_{SF}(s)d(t)\\
+p'(t)=v(t)=\bar{p}_{f}^{\prime}\left(s_{f}^{t}\right)\dot{s}_{f}^{t}+\bar{R}_{\mathrm{SF}}^{\prime}\left(s_{f}^{t}\right)\dot{s}_{f}^{t}d(t)+\bar{R}_{\mathrm{SF}}\left(s_{f}^{t}\right)\dot{d}(t).\\
+移项，代入d:=[0,\omega_1(t),\omega_2(t)]^T得到：\\\begin{bmatrix}0\\\dot{w}_1(t)\\\dot{w}_2(t)\end{bmatrix}+\dot{s}_f^t\begin{bmatrix}1-\bar{k}\left(s_f^t\right)w_1(t)\\-\bar{\tau}\left(s_f^t\right)w_2(t)\\\bar{\tau}\left(s_f^t\right)w_1(t)\end{bmatrix}-\bar{R}_{\mathrm{SF}}^T\left(s_f^t\right)\mathbf{v}(t)=0\\
+每行都是一组方程，分别解得：
+\begin{cases}\begin{aligned}\dot{s}_{f}^t&=\frac{\bar{t}\left(s_f^t\right)^T\mathbf{v}(t)}{1-\bar{k}\left(s_f^t\right)w_1(t)}\\\dot{w}_{1}(t)&=\bar{\boldsymbol{n}}\left(s_f^t\right)^T\mathbf{v}(t)+\bar{\tau}\left(s_f^t\right)\dot{s}_f^tw_2(t)\\\dot{w}_{2}(t)&=\bar{\boldsymbol{b}}\left(s_f^t\right)^T\mathbf{v}(t)-\bar{\tau}\left(s_f^t\right)\dot{s}_f^tw_1(t).\end{aligned}\end{cases}\\
+带入\bar{w}_{1}^{\prime},\bar{w}_{2}^{\prime},a和\phi原微分式，得：\\
+\begin{cases}\begin{aligned}&\bar{w}_{1}^{\prime}=\bar{n}^T\bar{\mathbf{v}}\frac{1-\bar{k}\bar{w}_1}{\bar{t}^T\bar{\mathbf{v}}}+\bar{\tau}\bar{w}_2\\&\bar{w}_{2}^{\prime}=\bar{b}^T\bar{\mathbf{v}}\frac{1-\bar{k}\bar{w}_1}{\bar{t}^T\bar{\mathbf{v}}}-\bar{\tau}\bar{w}_1\\&\bar{\mathbf{v}}^{\prime}=(ge_3-\frac{\bar{F}}{m}R(\bar{\Phi})e_3)\frac{1-\bar{k}\bar{w}_1}{\bar{t}^T\bar{\mathbf{v}}}\\&\bar{\Phi}^{\prime}=J(\bar{\Phi})\bar{\omega}\frac{1-\bar{k}\bar{w}_1}{\bar{t}^T\bar{\mathbf{v}}}.\end{aligned}\end{cases}
+$$
 
+## 约束和问题实现
 
+在编程中，各种限值约束都需要写成$x<0$之类的形式，例如在casadi库中优化问题的约束g就是一系列系统变量组成的数组，在运算中保证g恒大/小于零实现约束优化。论文提供了处理约束的思路：
+$$
+\left(\frac{\bar{p}(s)}{p_{\max}}\right)^2-1\leq0;\\
+\left(\frac{2\bar{F}(s)-(F_{\max}+F_{\min})}{(F_{\max}-F_{\min})}\right)^2-1\leq0\\
+\Rightarrow\left||\bar{F}(s)-\frac{F_{\max}+F_{\min}}{2}\right||\leq \frac{||F_{\max}-F_{\min}||}{2}.
+$$
+上两式分别展示了单边和双边约束的处理方法，其中双边约束相对难理解，其实可以写作第三式的格式，即距离平均值不能超过域宽的一半，保证在平均值附近。
 
-
-
-
-
-
+而优化问题由于用s参数化，因此又改写为：
+$$
+\int_0^T1dt=\int_{s_f(0)}^{s_f(T)}\bar{t}_f^{^{\prime}}(s)ds=\int_{s_f(0)}^{s_f(T)}\frac{1}{\dot s^t_f}ds=\int_0^L\frac{1-\bar{k}(s)\bar{w}_1(s)}{\bar{t}(s)^T\bar{\mathbf{v}}(s)}ds.
+$$
+在工程上，这个优化问题仍然需要放松，因此考虑将一部分限制约束作为代价，减少约束数量。由于约束都表现为负值需要大于0，因此考虑使用二次惩罚；但另一方面大多数约束都需要大于零，对应代价不趋于无穷，因此在另一侧使用更平滑温和的对数函数，表现如下：
+$$
+\beta_\ell(x):=\begin{cases}-\log(x),&x>\ell\\-\log(\ell)+\frac{1}{2}\left[\left(\frac{x-2\ell}{\ell}\right)^2-1\right],&x\leq\ell.&\end{cases}\\
+(注意1，随着迭代进行，l逐渐减小，对应约束逐渐放宽，边界外惩罚更大，将解逐渐推向边界)\\
+\min_{\bar{\boldsymbol{x}}_{w}(\cdot),\bar{\boldsymbol{u}}(\cdot)}\int_{0}^{L}\left(\frac{1-\bar{k}(s)\bar{w}_{1}(s)}{\bar{\boldsymbol{t}}(s)^{T}\bar{\mathbf{v}}(s)}+\epsilon\sum_{j}\beta_{\nu}(-c_{j}(\bar{\boldsymbol{x}}_{w}(s),\bar{\boldsymbol{u}}(s)))\right)ds+\epsilon_{f}\sum_{i}\beta_{\nu_{f}}(-c_{f,i}(\bar{\boldsymbol{x}}_{w}(L)))\\
+\mathrm{s.t.}\quad\bar{\boldsymbol{x}}_{w}^{\prime}(s)=\bar{f}(\bar{\boldsymbol{x}}_{w}(s),\bar{\boldsymbol{u}}(s)),\quad\forall s\in[0,L],\quad\bar{\boldsymbol{x}}_{w}(0)=\boldsymbol{x}_{w0}\\
+(注意2，c约束函数，即上文提到的约束数学表示)\\
+(注意3，正系数\epsilon也随迭代减小，对应约束越来越宽)\\
+$$
